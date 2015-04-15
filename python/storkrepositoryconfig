@@ -1,0 +1,3 @@
+REPURL=stork_repository.cs.arizona.edu
+
+METACLIENTPATH=/usr/local/stork/var/packageinfo/$REPURL/packageinfo

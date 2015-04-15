@@ -1,0 +1,40 @@
+#!/bin/sh
+
+# <Program Name>
+#    buildpackage
+#
+# <Author>
+#    Programmed by Jeffry Johnston
+#
+# <Purpose>
+#    Builds the stork logging package tarball
+
+PACKAGE_NAME=nestlogging
+if [ ! -f buildpackage ]
+then
+   echo "This script must be run from the directory containing 'buildpackage'."
+   exit 1
+fi
+
+# set file permissions
+chmod 0600 logging.key
+chmod 0644 logging.crontab syslog
+chmod 0755 .preinstall .postinstall .preremove tcpdumpd storklog.py tcpdumpdaemon.py straced stracedaemon.py filter-strace filter-strac2
+ 
+# copy files
+mkdir -p /tmp/$PACKAGE_NAME
+cp .preinstall .postinstall .preremove /tmp/$PACKAGE_NAME/
+mkdir -p /tmp/$PACKAGE_NAME/usr/local/stork/bin
+#cp tcpdumpdaemon.py storklog.py logging.key logging.crontab ../arizonageneral.py ../arizonaconfig.py ../arizonareport.py ../storkerror.py /tmp/$PACKAGE_NAME/usr/local/stork/bin/
+cp tcpdumpdaemon.py stracedaemon.py logging.key logging.crontab filter-strace filter-strac2 /tmp/$PACKAGE_NAME/usr/local/stork/bin/
+mkdir -p /tmp/$PACKAGE_NAME/etc/rc.d/init.d
+cp tcpdumpd /tmp/$PACKAGE_NAME/etc/rc.d/init.d/
+cp straced /tmp/$PACKAGE_NAME/etc/rc.d/init.d/
+mkdir -p /tmp/$PACKAGE_NAME/etc/logrotate.d
+cp syslog /tmp/$PACKAGE_NAME/etc/logrotate.d/
+
+# build package
+tar --owner=root --group=root --directory=/tmp/$PACKAGE_NAME -Pjcvf $PACKAGE_NAME.tar.bz2 .preinstall .postinstall .preremove usr/ etc/
+
+# clean up /tmp
+rm -rf /tmp/$PACKAGE_NAME/

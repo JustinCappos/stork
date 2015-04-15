@@ -1,0 +1,6 @@
+#!/bin/bash
+
+# read configuration variables
+source /usr/local/stork/bin/storkrepositoryconfig
+
+/usr/local/stork/bin/attemptpsepr.init /repository/packageinfo/metafile $METACLIENTPATH/metafile /repository/keys/psepr.privatekey

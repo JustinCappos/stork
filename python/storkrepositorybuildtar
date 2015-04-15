@@ -1,0 +1,51 @@
+#!/bin/bash
+
+# read configuration variables
+source /usr/local/stork/bin/storkrepositoryconfig
+
+# This script rebuilds the repository tarballs for packageinfo, tpfiles, pacman
+# files, etc. It then creates a new metafile and finally pushes the metafile
+# with PsEPR.
+
+echo "##### REMOVING OLD TARBALLS"
+rm -f /repository/packageinfo/*.tar.bz2
+rm -f /repository/packageinfo/metafile
+
+
+echo "##### BEGINNING TARBALL CONSTRUCTION"
+# Time to make the tarballs
+
+# TODO: This behaves strangely if /repository/metadata/ is empty.
+for file in /repository/metadata/*
+do
+    base=`basename $file`
+    echo "  Making packageinfo tarball $base"
+    tar -C /repository/metadata -jcf /repository/packageinfo/$base.tar.bz2 $base
+done
+
+# tpfiles
+echo "  Making tarball tpfiles"
+tar -C /repository/user-upload -jcf /repository/packageinfo/tpfiles.tar.bz2 tpfiles
+
+# pacman (groups and packages)
+echo "  Making tarball pacman"
+tar -C /repository/user-upload -jcf /repository/packageinfo/pacman.tar.bz2 pacman
+
+
+echo "##### UPDATE METADATA"
+# Updating the metadata
+# all the tarballs we just made
+for file in /repository/packageinfo/*.bz2
+do
+  /usr/local/stork/bin/storkmetafileupdate.py --metafiledir /repository/packageinfo `basename $file`
+done
+
+
+echo "##### PUSH METAHASH VIA PSEPR"
+# Push the message via PsEPR
+/usr/local/stork/bin/storkrepositorypseprupdate
+
+# make sure everything in /repository is owned by apache
+# this should always be the last line of this script
+
+chown -R apache /repository

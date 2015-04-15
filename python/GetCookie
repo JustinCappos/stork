@@ -1,0 +1,7 @@
+HTTP/1.1 200 OK
+Date: Mon, 17 Mar 2008 15:43:21 GMT
+Content-Length: 7
+Content-Type: text/html
+Server: CherryPy/3.0.3
+Set-Cookie: session_id=c28760275be990a3a0064c4707e3daa1a3cda7d6; expires=Mon, 17 Mar 2008 16:43:21 GMT; Path=/;
+

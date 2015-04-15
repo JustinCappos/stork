@@ -1,0 +1,10 @@
+./2.0/python/storkutil.py --configurationfile=/dev/null --storkutilsetupcomplete=True --disableerrorreport --tpusername MATT addfile rpm_builds/RPMS/i386/stork-enduser-tar-1-1.tar.gz
+./2.0/python/storkutil.py --configurationfile=/dev/null --storkutilsetupcomplete=True --disableerrorreport addfile rpm_builds/RPMS/i386/stork-enduser-tar-1-1.tar.gz
+./2.0/python/storkutil.py --configurationfile=/dev/null --storkutilsetupcomplete=True --disableerrorreport genpair MATT
+./2.0/python/storkutil.py --configurationfile=/dev/null --storkutilsetupcomplete=True --disableerrorreport --tpusername MATT addfile rpm_builds/RPMS/i386/stork-enduser-tar-1-1.tar.gz
+./2.0/python/storkutil.py --disableerrorreport genpair MATT
+./2.0/python/storkutil.py --storkutilsetupcomplete=True --disableerrorreport --tpusername MATT addfile rpm_builds/RPMS/i386/stork-enduser-tar-1-1.tar.gz
+./2.0/python/storkutil.py --configurationfile=/dev/null --storkutilsetupcomplete=True --disableerrorreport removefile stork-enduser-tar-1-1.tar.gz
+./2.0/python/storkutil.py --tpusername MATT --storkutilsetupcomplete=True --disableerrorreport removefile stork-enduser-tar-1-1.tar.gz
+./MATT.tpfile
+

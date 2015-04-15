@@ -1,0 +1,690 @@
+#! /usr/bin/env python
+
+"""
+<Program Name>
+   storknestrpm.py
+
+<Started>
+   November 22, 2005
+
+<Author>
+   Programmed by Jeffry Johnston.
+
+<Purpose>
+   Implements client side of RPM-nest functionality.
+"""
+
+import os
+import arizonacomm
+import arizonaconfig
+import arizonageneral
+import arizonareport
+import storkidentify
+
+glo_nestname = None
+glo_comm_ok = False
+
+
+
+def initialize():
+   """
+   <Purpose>
+      Initializes the package manager.  
+      This must be called before can_satisfy.
+
+   <Arguments>
+      None.
+
+   <Exceptions>
+      None.
+
+   <Side Effects>
+      None.
+
+   <Returns>
+      Returns a list of dependencies that the package manager itself 
+      satisfies.
+   """
+   global glo_nestname
+   
+   # build list of dependencies internally satisfied by rpm
+   (junk_in, the_out, the_err) = os.popen3("rpm --showrc")
+   junk_in.close()
+   output = the_out.readline()
+   rpm_sats = []
+   while output:
+      output = output.strip()
+      if output.startswith('rpmlib('):
+         rpm_sats.append(output)
+      output = the_out.readline()
+
+   # connect to nest 
+   try:
+      arizonacomm.connect(arizonaconfig.get_option("transhost"), 
+                          arizonaconfig.get_option("transport"))
+   except IOError: 
+      arizonareport.send_error(0, "nestrpm package manager: Could not connect to nest")
+      return None
+   
+   # identify 
+   glo_nestname = storkidentify.identify()
+
+   # if not identified, report an error
+   if glo_nestname == None:
+      arizonareport.send_error(0, "nestrpm package manager: Could not retrieve nest name (identification failed)")
+      return None
+      
+   return rpm_sats
+   
+
+
+
+
+def is_package_understood(filename):
+   """
+   <Purpose>
+      Given a filename, checks whether it is a valid RPM package.
+
+   <Arguments>
+      filename:
+              Filename of the rpm to check.
+
+   <Exceptions>
+      TypeError:
+              If a type mismatch or parameter error is detected.
+
+   <Side Effects>
+      None.
+
+   <Returns>
+      True if the package is valid and understood, False otherwise.
+   """
+   # check params
+   arizonageneral.check_type_simple(filename, "filename", str, "storkrpm.is_package_understood")
+   
+   # does the file exist?
+   if not os.path.isfile(filename):
+      return False
+   
+   # if we can get package information, then the rpm was understood
+   return get_package_info(filename) != None
+
+
+
+
+
+def __understood_packages(filename_list):
+   understood = []
+   for filename in filename_list:
+      if is_package_understood(filename):
+         understood.append(filename)
+   return understood      
+
+
+
+
+
+def get_packages_provide(filename_list):
+   """
+   <Purpose>
+      Given a string list of package filenames, returns a string list of 
+      dependencies that those packages can provide.
+
+   <Arguments>
+      filename_list:
+              String list of package filenames.
+
+   <Exceptions>
+      TypeError:
+              If a type mismatch or parameter error is detected.
+
+   <Side Effects>
+      None.
+
+   <Returns>
+      String list of dependencies provided by the given package files.
+   """
+   # check params
+   arizonageneral.check_type_stringlist(filename_list, "filename_list", "storkrpm.get_packages_provide")
+
+   if len(filename_list) < 1:
+      return []
+      
+   filename_list = __understood_packages(filename_list)   
+
+   (junk_in, the_out, the_err) = os.popen3("rpm -qp --provides" + arizonageneral.list_to_args(filename_list))
+   junk_in.close()
+   output = the_out.readline()
+   retlist = []
+   while output:
+      if not (output.startswith('error:') or output.endswith('Is a directory')):
+         retlist.append(output.strip())
+      output = the_out.readline()
+      
+   return retlist
+
+
+
+
+
+def get_packages_require(filename_list):
+   """
+   <Purpose>
+      Given a string list of package filenames, returns a string list of 
+      dependencies that those packages require.
+
+   <Arguments>
+      filename_list:
+              String list of package filenames.
+
+   <Exceptions>
+      TypeError:
+              If a type mismatch or parameter error is detected.
+
+   <Side Effects>
+      None.
+
+   <Returns>
+      String list of dependencies required by the given package files.
+   """
+   # check params
+   arizonageneral.check_type_stringlist(filename_list, "filename_list", "storkrpm.get_packages_require")
+
+   if len(filename_list) < 1:
+      return []
+
+   filename_list = __understood_packages(filename_list)   
+
+   (junk_in, the_out, the_err) = os.popen3("rpm -qp --requires" + arizonageneral.list_to_args(filename_list))
+   junk_in.close()
+   output = the_out.readline()
+   retlist = []
+   while output:
+      if not (output.startswith('error:') or output.endswith('Is a directory')):
+         retlist.append(output.strip())
+      output = the_out.readline()
+      
+   return retlist
+
+
+
+
+
+def get_packages_files(filename_list):
+   """
+   <Purpose>
+      Given a string list of package filenames, returns a string list of 
+      files that are installed by those packages.
+
+   <Arguments>
+      filename_list:
+              String list of package filenames.
+
+   <Exceptions>
+      TypeError:
+              If a type mismatch or parameter error is detected.
+
+   <Side Effects>
+      None.
+
+   <Returns>
+      String list of files in the given package files.
+   """
+   # check params
+   arizonageneral.check_type_stringlist(filename_list, "filename_list", "storkrpm.get_packages_files")
+
+   if len(filename_list) < 1:
+      return []
+
+   filename_list = __understood_packages(filename_list)   
+
+   (junk_in, the_out, the_err) = os.popen3("rpm -qpl" + arizonageneral.list_to_args(filename_list))
+   junk_in.close()
+   output = the_out.readline()
+   retlist = []
+   while output:
+      if not (output.startswith('error:') or output.endswith('Is a directory')):
+         retlist.append(output.strip())
+      output = the_out.readline()
+      
+   return retlist
+
+
+
+
+
+def get_package_info(filename):
+   """
+   <Purpose>
+      Given a package filename, returns a string list of package 
+      information of the form: 
+        [NAME, VERSION, RELEASE, SIZE]
+
+   <Arguments>
+      filename:
+              Package filename.
+
+   <Exceptions>
+      TypeError:
+              If a type mismatch or parameter error is detected.
+
+   <Side Effects>
+      None.
+
+   <Returns>
+      String list containing package information, or None on error.
+   """
+   # check params
+   arizonageneral.check_type_simple(filename, "filename", str, "storkrpm.get_package_info")
+
+   (out, err, status) = arizonageneral.popen5("rpm -qp --qf \"%{NAME}|%{EPOCH}:%{VERSION}|%{RELEASE}|%{SIZE}\" " + filename)
+   if len(out) < 1:
+      return None
+      
+   output = out[0].split("|")
+   if len(output) != 4:
+      return None
+
+   # if there was no epoch, then get rid of the (none): prefix      
+   if output[1].startswith("(none)"):
+      output[1] = output[1][7:]
+
+   return output
+
+
+
+
+
+def get_installed_versions(package_list):
+   """
+   <Purpose>
+      Given a package list, returns a list containing the name and version
+      of each package if installed, or None for a package that is not 
+      installed.
+
+   <Arguments>
+      package_list:
+              List of strings containing the names of the packages to get 
+              version information for.
+
+   <Exceptions>
+      TypeError:
+              If a type mismatch or parameter error is detected.
+
+   <Side Effects>
+      None.
+
+   <Returns>
+      String list containing each package name and version (in the format
+      "name = version-release"), otherwise None for each package not 
+      installed.
+   """
+   # check params
+   arizonageneral.check_type_stringlist(package_list, "package_list", "storkrpm.get_installed_versions")
+
+   if len(package_list) < 1:
+      return []
+
+   version_list = []   
+   cmd_in = os.popen("rpm -q --qf \"%{name} = %{epoch}:%{version}-%{release}\n\"" + arizonageneral.list_to_args(package_list))
+   output = cmd_in.readline().strip()
+
+   # for each package there will be one line of output, either with the 
+   # formatted info we want, or ending with "not installed".
+   while output:
+      if output.endswith("not installed"):
+         version_list.append(None)
+      else:
+         # if there isn't an epoch, remove the "(none):" text
+         output = output.replace(" = (none):", " = ")
+         version_list.append(output)
+      output = cmd_in.readline().strip()
+   cmd_in.close()
+   
+   return version_list
+
+
+
+
+
+def get_installedpackages_fulfilling(dep_list):
+   """
+   <Purpose>
+      Given a string list of dependencies, returns a string list of 
+      installed packages that fulfill those package dependencies.
+
+   <Arguments>
+      dep_list:
+              String list of package dependencies.
+
+   <Exceptions>
+      TypeError:
+              If a type mismatch or parameter error is detected.
+
+   <Side Effects>
+      None.
+
+   <Returns>
+      String list of installed packages that meet the given dependencies.
+   """
+   # check params
+   arizonageneral.check_type_stringlist(dep_list, "dep_list", "storkrpm.get_installedpackages_fulfilling")
+
+   if len(dep_list) < 1:
+      return []
+
+   (junk_in, the_out, the_err) = os.popen3("rpm -q --whatprovides" + arizonageneral.list_to_args(dep_list))
+   junk_in.close()
+   output = the_out.readline()
+   retlist = []
+   while output:
+      if not output.startswith('no package provides '):
+         retlist.append(output.strip())
+      output = the_out.readline()
+      
+   return retlist
+
+
+
+
+
+def get_installedpackages_provide(package_list):
+   """
+   <Purpose>
+      Given a string list of installed package names, returns a string 
+      list of all dependencies fulfilled by those packages. 
+
+   <Arguments>
+      package_list:
+              String list of installed package names.
+
+   <Exceptions>
+      IOError: 
+              If asked to report on a package that is not installed.
+      TypeError:
+              If a type mismatch or parameter error is detected.
+
+   <Side Effects>
+      None.
+
+   <Returns>
+      String list of all dependencies fulfilled by the given packages.
+      Dependencies will either be in the form:
+        name=version-release (possible spaces around `=')
+      Or:
+        name  
+   """
+   # check params
+   arizonageneral.check_type_stringlist(package_list, "package_list", "storkrpm.get_installedpackages_provide")
+
+   if len(package_list) < 1:
+      return []
+
+   (junk_in, the_out, the_err) = os.popen3("rpm -q --provides" + arizonageneral.list_to_args(package_list))
+   junk_in.close()
+   output = the_out.readline()
+   if output.endswith('is not installed'):
+      raise IOError, "Inconsistent RPM database!"
+   
+   retlist = []
+   while output:
+      retlist.append(output.strip())
+      output = the_out.readline()
+      
+   return retlist
+
+
+
+
+
+def install(filename_list):
+   """
+   <Purpose>
+      Installs packages with the given filenames.
+
+   <Arguments>
+      filename_list:
+              String list of filenames representing packages to install.
+
+   <Exceptions>
+      arizonageneral.Exception_Data:
+              If a package failed to install properly
+      TypeError:
+              If a type mismatch or parameter error is detected.
+
+   <Side Effects>
+      None.
+
+   <Returns>
+      None.
+   """
+   global glo_comm_ok
+   
+   # check params
+   arizonageneral.check_type_stringlist(filename_list, "filename_list", "storkrpm.install")
+
+   if len(filename_list) < 1:
+      return
+      
+   # create .exportdir file
+   f = file("/.exportdir", "w")
+   f.write(glo_nestname + "\n")
+   f.close()
+
+   failure = False
+   for i, filename in enumerate(filename_list):
+      # run preinstall scripts
+      (out, err, status) = arizonageneral.popen5("rpm -i --nodeps --nopost --notriggers " + filename) 
+      if status != 0:
+         failure = True
+         # TODO log the failure?
+         continue;
+
+      # not okay until the operation completes successfully 
+      glo_comm_ok = False   
+
+      # copy files
+      arizonacomm.send("prepare", filename) 
+      arizonacomm.handle_session({"prepared": __handle_prepared, \
+                                  "send_out": __handle_send_out, \
+                                  "send_out_comma": __handle_send_out_comma, \
+                                  "send_error": __handle_send_error, \
+                                  "flush_out": __handle_flush_out, \
+                                  "flush_error": __handle_flush_error})
+                                  
+      # verify that handle_session exited the expected way
+      # Justin: I killed the code change because __handle_prepared() sets the 
+      # glo_comm_ok variable so I think we may have been confused...
+      #
+      # Duy Nguyen - glo_comm_ok is never changed, old code?
+      if not glo_comm_ok:
+         # raise an exception so that error reporting will capture output
+         raise IOError, "nest: encountered an error, install may have failed"
+
+      # run postinstall scripts
+      (out, err, status) = arizonageneral.popen5("rpm -i --force --excludepath / --nodeps --nopre " + filename) 
+      if status != 0:
+         failure = True
+         # TODO log the failure?
+         continue;
+
+   # Justin: This code should be removed because the initscript creates this
+   # file and the .export dir doesn't go away...   TODO
+   # remove .exportdir file
+   # JRP - 11/5/06
+   # First check if this file is there before we remove it
+   #   Im not sure why this might happen, all I know is
+   #   it causes a stack trace if you try to remove a
+   #   file that is not there
+   if os.path.isfile("/.exportdir"):
+        os.remove("/.exportdir")
+
+   # if there were errors: determine which packages were not installed
+   if failure:
+
+      installed_list = []
+      not_installed_list = []
+      for filename in filename_list:
+
+        # get package name
+        package_name = []
+        cmd_in = os.popen("rpm -qp " +filename)
+        output = cmd_in.readline().strip()
+        while output:
+           if output.startswith("error:") or output.startswith("warning:"):
+  	      pass
+           else:
+              package_name.append(output)
+           output = cmd_in.readline().strip()
+        cmd_in.close()
+	
+      
+        # generate lists of installed and failed packages 
+        for i, pack in enumerate(get_installed_versions(package_name)):
+           if pack == None:
+              not_installed_list.append(filename)
+           else:
+              installed_list.append(filename)
+
+      # raise an exception unless everything installed
+      if len(not_installed_list) > 0: 
+         raise arizonageneral.Exception_Data(err, (installed_list, not_installed_list))
+
+
+
+
+      # get package names
+#      package_list = []
+#      cmd_in = os.popen("rpm -qp" + arizonageneral.list_to_args(filename_list))
+#      output = cmd_in.readline().strip()
+#      while output:
+#         if output.startswith("error:") or output.startswith("warning:"):
+#	    pass
+#         else:
+#            package_list.append(output)
+#         output = cmd_in.readline().strip()
+#      cmd_in.close()
+#	
+#      
+#      # generate lists of installed and failed packages 
+#      installed_list = []
+#      not_installed_list = []
+#      for i, pack in enumerate(get_installed_versions(package_list)):
+#         if pack == None:
+#            not_installed_list.append(package_list[i])
+#         else:
+#            installed_list.append(package_list[i])
+#
+#      # raise an exception unless everything installed
+#      if len(not_installed_list) > 0: 
+#         raise arizonageneral.Exception_Data(err, (installed_list, not_installed_list))
+
+
+
+
+
+def __handle_prepared(junk_data):
+   """
+   <Purpose>
+      Called when the nest has finished copying files.
+
+   <Arguments>
+      data:
+              Unused.
+
+   <Exceptions>
+      IOError if there was problem ending the current session.
+
+   <Side Effects>
+      Sets glo_comm_ok to True.
+
+   <Returns>
+      None.
+   """
+   global glo_comm_ok
+   arizonacomm.end_session()
+   glo_comm_ok = True
+
+
+
+
+
+def __handle_send_out(data):
+   arizonareport.send_out(0, data)
+   
+
+
+
+
+def __handle_send_out_comma(data):
+   arizonareport.send_out_comma(0, data)
+
+
+
+
+
+def __handle_send_error(data):
+   arizonareport.send_error(0, data)
+
+
+
+
+
+def __handle_flush_out(junk_data):
+   arizonareport.flush_out(0)
+
+
+
+
+
+def __handle_flush_error(junk_data):
+   arizonareport.flush_error(0)
+
+
+
+
+
+def remove(package_list):
+   """
+   <Purpose>
+      Removes packages with the given package names.
+
+   <Arguments>
+      package_list:
+              String list of packages to remove.
+
+   <Exceptions>
+      arizonageneral.Exception_Data:
+              Error removing a package.
+      TypeError:
+              If a type mismatch or parameter error is detected.
+
+   <Side Effects>
+      None.
+
+   <Returns>
+      None.
+   """
+   # check params
+   arizonageneral.check_type_stringlist(package_list, "package_list", "storknestrpm.remove")
+   
+   if len(package_list) < 1:
+      return
+
+   # remove packages
+   (out, err, status) = arizonageneral.popen5("rpm -e" + arizonageneral.list_to_args(package_list))
+   
+   # if there were errors: determine which packages were not removed
+   if status != 0:
+      # generate lists of removed and failed packages
+      removed_list = []
+      not_removed_list = []
+      for i, pack in enumerate(get_installed_versions(package_list)):
+         if pack == None:
+            removed_list.append(package_list[i])
+         else:
+            not_removed_list.append(package_list[i])
+
+      # raise an exception unless everything was removed
+      if len(not_removed_list) > 0: 
+         raise arizonageneral.Exception_Data("".join(err).strip(), (removed_list, not_removed_list))

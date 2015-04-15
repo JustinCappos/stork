@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# filter out the unwanted stuff from the strace file
+
+FILE=/tmp/strace-raw
+OUTPUT=/tmp/strace-`hostname`.`date +%s`
+
+egrep "connect\([0-9]+, \{sa_family=AF_INET.* = 0" $FILE 2>/dev/null \
+ | fgrep -v "127.0.0.1" \
+ | awk '"*" { gsub("(\\[pid )|(\\])|(sin_port=htons\\()|(\\),)|(sin_addr=inet_addr\\(.)|(.\\)\\},)","", $0); print $1 " " $2 " " $5 " " $6; }' \
+ > $OUTPUT
+
+

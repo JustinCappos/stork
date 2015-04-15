@@ -1,0 +1,19 @@
+#!/bin/sh
+
+# <Program Name>
+#    .preremove
+#
+# <Author>
+#    Programmed by Jeffry Johnston
+#
+# <Purpose>
+#    Commands to run before stork logging tarball is removed
+
+# stop tcpdumpd
+/etc/rc.d/init.d/tcpdumpd stop
+/etc/rc.d/init.d/straced stop
+
+# restore /etc/logrotate.d/syslog
+/bin/cp /etc/logrotate.d/syslog.orig /etc/logrotate.d/syslog
+/bin/rm -f /etc/logrotate.d/syslog.orig
+

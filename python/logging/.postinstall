@@ -1,0 +1,38 @@
+#!/bin/sh
+
+# <Program Name>
+#    .postinstall
+#
+# <Author>
+#    Programmed by Jeffry Johnston
+#
+# <Purpose>
+#    Commands to run after stork logging tarball is extracted
+
+# create symlink for /etc/init.d
+/bin/ln -s /etc/rc.d/init.d /etc/init.d &> /dev/null
+
+# add line to /etc/passwd so that tcpdump works properly
+/bin/grep pcap /etc/passwd
+if [ $? -ne "0" ]
+then
+  echo "pcap:x:77:77::/var/arpwatch:/bin/nologin" >> /etc/passwd
+fi
+
+# add crontab entry for log uploading and rotation
+/usr/bin/crontab -l > /tmp/crontab 
+/bin/grep storklog /tmp/crontab 
+if [ $? -ne "0" ]
+then
+  /usr/bin/crontab /usr/local/stork/bin/logging.crontab
+fi
+/bin/rm -f /tmp/crontab
+
+# start or restart crond
+/etc/rc.d/init.d/crond restart
+
+# start or restart tcpdumpd
+/etc/rc.d/init.d/tcpdumpd restart
+
+# start or restart straced
+/etc/rc.d/init.d/straced restart

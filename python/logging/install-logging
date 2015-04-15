@@ -1,0 +1,71 @@
+#!/bin/sh
+
+# <Program Name>
+#    install-logging
+#
+# <Author>
+#    Programmed by Jeffry Johnston
+#
+# <Purpose>
+#    Installs or repairs stork logging, as needed
+
+NEST=arizona_stork2             # the nest slice name 
+PACKAGE=nestlogging.tar.bz2     # name of the logging tarball 
+NEW=/home/$NEST/do_install      # where appmanager puts the logging tarball
+OLD=/usr/local/bin/old          # where we put a copy of the logging tarball
+
+# UPGRADE: install or upgrade logging package
+echo "install-logging: UPGRADE"
+/usr/bin/cmp -s $OLD/$PACKAGE $NEW/$PACKAGE
+if [ ! -f $OLD/$PACKAGE -o $? -ne 0 ]
+then
+  # run .preremove script, if present
+  if [ -f /.preremove ]
+  then
+    /.preremove
+  fi
+
+  # extract and run .preinstall script
+  /bin/tar -C / -Pjxvf $NEW/$PACKAGE .preinstall
+  /.preinstall
+
+  # extract files
+  /bin/tar -C / -Pjxvf $NEW/$PACKAGE
+
+  # copy tarball
+  /bin/mkdir -p $OLD
+  /bin/cp $NEW/$PACKAGE $OLD/
+
+  # run .postinstall script
+  /.postinstall
+
+  # exit
+  exit 0
+fi
+
+# FILES: replace package file(s) missing from filesystem
+echo "install-logging: FILES"
+/bin/tar -jtf $OLD/$PACKAGE > /tmp/$PACKAGE.files
+while read FILENAME
+do
+  if [ ! -e /$FILENAME ] 
+  then
+    # extract missing file
+    /bin/tar -C / -Pjxvf $OLD/$PACKAGE $FILENAME
+  fi
+done < /tmp/$PACKAGE.files
+
+# DAEMONS: restart daemon(s) if not running
+echo "install-logging: DAEMONS"
+/usr/bin/pgrep crond > /dev/null
+if [ $? -ne 0 ]
+then
+  /etc/rc.d/init.d/crond start
+fi
+/usr/bin/pgrep -f tcpdumpdaemon.py > /dev/null
+if [ $? -ne 0 ]
+then
+  /etc/rc.d/init.d/tcpdumpd start
+fi
+
+exit 0

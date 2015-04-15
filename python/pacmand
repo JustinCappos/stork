@@ -1,0 +1,282 @@
+#! /usr/bin/env python
+
+# John H. Hartman
+# Parts copied from storkupdated
+#
+# pacmand -- pacman daemon
+# Runs pacman periodically
+#
+#           [option, long option,                     variable,                      action,       data,     default,                       metavar,                       description]
+"""arizonaconfig
+    options=[
+             ["",    "--pacman",                      "pacman",                      "store",      "string", "/usr/local/stork/bin/pacman", None,                          "command to run"],
+             ["",    "--pacmandsync",                 "pacmandsync",                 "store_true", None,     False,                         None,                          "run synchronously (don't detach)"],
+             ["",    "--pacmandpseprverbose",         "pacmandpseprverbose",         "store_true", None,     False,                         None,                          "verbose pespr message"],
+#             ["",    "--pacmandusepsepr",             "usepsepr",                    "store_true", None,     False,                         None,                          "use psepr for updates rather than a static interval"],
+             ["",    "--pacmanddisablepsepr",         "usepsepr",                    "store_false", None,     True,                         None,                          "use psepr for updates rather than a static interval"],
+             ["",    "--timer",                       "pactimer",                    "store",      "int",    300,                           "pactimer",                    "Set time between pacman calls"]
+            ]
+
+     #include the options from pacman
+    includes=["$MAIN/pacman"]
+"""
+
+import sys,os,signal,time
+#should be in the same directory as the other scripts when used...
+#sys.path += ["../python/refactor"]
+import arizonaconfig, arizonareport, arizonacomm
+import arizonageneral
+import storkpseprdaemon
+import threading
+
+glo_cmd="echo command missing"
+
+
+class ClientPsEPRDaemon(storkpseprdaemon.PsEPRDaemon):
+        """
+           <Purpose>
+              Listens for psepr messages. Calls pacman_signal_event() when a
+              psepr message is received.
+        """
+
+        def __init__(self, section=None, update=None, msghandler=None, debugmode=False):
+           storkpseprdaemon.PsEPRDaemon.__init__(self, section, update, msghandler, debugmode)
+
+           # create a thread to watch for stale psepr messages
+           sdaemon = PsEPRStaleDaemon()
+           sdaemon.set_expiration_handler(self.check_expired)
+
+        def update(self, filename):
+           arizonareport.send_syslog(arizonareport.INFO, "[pacmand] Updating due to psepr message received")
+           if self.debugmode:
+              print "[pacmand] ClientPsEPRDaemon: psepr update received"
+           pacman_signal_event()
+
+class PsEPRStaleDaemon(threading.Thread):
+        """
+           <Purpose>
+              Monitors psepr to see if it is receiving messages. If no psepr
+              messages have been received in a while, psepr is declared
+              stale and pacman is run.
+        """
+
+        def __init__(self):
+            threading.Thread.__init__(self)
+            self.check_expired = None
+            self.expiration_time = 300
+            self.done = False
+            self.start()
+
+        def set_expiration_handler(self, handler):
+            self.check_expired = handler
+
+        def run(self):
+            while not self.done:
+                if verbose:
+                    arizonareport.send_syslog(arizonareport.INFO, "staledaemon: top of loop")
+                # check and see if psepr is stale
+                if self.check_expired and self.check_expired(self.expiration_time):
+                   arizonareport.send_syslog(arizonareport.INFO, "[pacmand] Updating due to stale psepr")
+                   if verbose:
+                       print "[pacmand] Stale Daemon: psepr is stale"
+
+                   # tell pacman to update
+                   pacman_signal_event()
+
+                   if verbose:
+                       arizonareport.send_syslog(arizonareport.INFO, "staledaemon: exp sleeping "+str(self.expiration_time))
+                   # check again after the next stale interval
+                   time.sleep(self.expiration_time)
+                else:
+                   if verbose:
+                       arizonareport.send_syslog(arizonareport.INFO, "not stale: waiting")
+                       print "[pacmand] not stale; waiting"
+                   # psepr is not stale. ClientPsEPRDaemon should be handling
+                   # updates. We can sleep and check again for a stale psepr
+                   # later
+                   time.sleep(90.0) # XXX raised from 30 to 90 to reduce debugging msg count 
+
+
+def check_initscript_running():
+    """
+    <Purpose>
+       Return True if the stork initscript is running, false otherwise.
+    """
+    if not os.path.exists("/var/run/stork_initscript.pid"):
+        return False
+
+    try:
+        file = open("/var/run/stork_initscript.pid")
+    except:
+        arizonareport.send_syslog(arizonareport.INFO, "failed to open the stork_initscript pid file")
+        return False
+
+    try:
+        initscript_pid = file.readline().strip()
+    except:
+        file.close()
+        arizonareport.send_syslog(arizonareport.INFO, "failed to get the pid from the stork_initscript pid file")
+        return False
+
+    file.close()
+
+    # "ps -p <pid>" should return 0 if the process exists, or nonzero if it
+    # does not exist
+
+    try:
+        result = os.system("ps -p " + initscript_pid + " > /dev/null")
+    except:
+        arizonareport.send_syslog(arizonareport.INFO, "exception while running ps to check stork_initscript pid")
+        return False
+
+    if result == 0:
+        return True
+    else:
+        return False
+
+def wait_if_initscript_running():
+    """
+    <Purpose>
+       Wait for the stork initscript to finish running.
+    """
+    sent = False
+
+    while check_initscript_running():
+        if not sent:
+            arizonareport.send_syslog(arizonareport.INFO, "stork initscript is running. delaying in 30-second increments")
+            sent = True
+        time.sleep(30)
+
+    if sent:
+        arizonareport.send_syslog(arizonareport.INFO, "stork initscript is no longer running")
+
+def handler_sighup(signum, frame):
+    """
+    <Purpose>
+       Intercepts the "hangup" signal, but doesn't do anything.
+       Simply causes the sleep to return.
+    """
+    pass
+
+def pacman_signal_event():
+   global pacman_update_event
+
+   pacman_update_event.set()
+
+def pacman_update():
+    global glo_cmd, verbose
+
+    if verbose:
+        arizonareport.send_syslog(arizonareport.INFO, "[pacmand] Executing: " + glo_cmd)
+    if sync:
+        print "[pacmand] executing: " + glo_cmd
+
+    rc = os.system(glo_cmd)
+
+    if rc == 0:
+        if verbose:
+            arizonareport.send_syslog(arizonareport.INFO, "[pacmand] command returned with status " + str(rc))
+    else:
+        arizonareport.send_syslog(arizonareport.ERROR, "[pacmand] Error executing '%s'" % glo_cmd)
+
+def Main():
+    global glo_cmd
+    global sync
+    global verbose
+    global pacman_update_event
+
+    args = arizonaconfig.init_options("pacmand",version="2.0", configfile_optvar="configfile")
+
+    pacman = arizonaconfig.get_option("pacman")
+    verbose = arizonaconfig.get_option("pacmanverbose")
+    sync = arizonaconfig.get_option("pacmandsync")
+    timer = arizonaconfig.get_option("pactimer")
+
+    use_psepr = arizonaconfig.get_option("usepsepr")
+    psepr_verbose = arizonaconfig.get_option("pacmandpseprverbose")
+
+    if verbose:
+       arizonareport.send_syslog(arizonareport.INFO, "[pacmand] before create event")
+
+    # create an event used to signal pacman updates
+    pacman_update_event = threading.Event()
+    pacman_update_event.set()
+
+    glo_cmd = "%s" % (pacman)
+
+    # set the hangup signal handler
+    signal.signal(signal.SIGHUP, handler_sighup)
+
+    if sync:
+        arizonareport.send_syslog(arizonareport.INFO, "[pacmand] Starting")
+    else:
+        # run as a daemon
+        arizonageneral.make_daemon("pacmand")
+
+    pdaemons = []
+    if use_psepr:
+        # get the arizonaconfig sections for pseprdaemonchannel. we'll start
+        # a psepr daemon for each one of these sections.
+
+        psepr_sections = arizonaconfig.get_sections("pseprdaemonchannel")
+        if not psepr_sections:
+            psepr_sections = [None]
+
+        for section in psepr_sections:
+            pdaemons.append(ClientPsEPRDaemon(section, None, None, psepr_verbose))
+
+    last_time = 0
+
+    # update no more often than once every 30 seconds
+    minimum_time_since_last = 30
+
+    if verbose:
+       arizonareport.send_syslog(arizonareport.INFO, "[pacmand] before enter loop")
+
+    while True:
+        # if we're configured to use psepr, then wait for an update event from
+        # the psepr daemon
+        if use_psepr:
+            if verbose:
+               arizonareport.send_syslog(arizonareport.INFO, "[pacmand] waiting for event")
+            pacman_update_event.wait()
+            if verbose:
+               arizonareport.send_syslog(arizonareport.INFO, "[pacmand] got event")
+
+        # check and see if we just ran. If we did, then delay a bit
+        time_since_last = time.time() - last_time
+        if time_since_last < minimum_time_since_last:
+           delay = minimum_time_since_last - time_since_last
+           if verbose:
+               arizonareport.send_syslog(arizonareport.INFO, "[pacmand] updates too frequent; delaying " + str(delay))
+               print "[pacmand] updates too frequent; delaying " + str(delay)
+           time.sleep(delay)
+
+        # block if an initscript is running
+        wait_if_initscript_running()
+
+        time_since_last = time.time() - last_time
+
+        print "[pacmand] time since last run " + str(int(time_since_last)) + " seconds"
+        arizonareport.send_syslog(arizonareport.INFO, "[pacmand] time since last run " + str(int(time_since_last)) + " seconds")
+
+        last_time = time.time()
+
+        # clear the update event, so that it can be signalled again
+        pacman_update_event.clear()
+
+        # do our thing
+        pacman_update()
+
+        # if we're not configured to use psepr, then this is the point where we
+        # sleep and wait for another interval
+        if not use_psepr:
+            if verbose:
+               print "[pacmand] sleeping for " + str(timer) + " seconds"
+               arizonareport.send_syslog(arizonareport.INFO, "[pacmand] sleeping for " + str(timer) + " seconds")
+            time.sleep(timer)
+
+
+
+if __name__ == "__main__":
+    Main()

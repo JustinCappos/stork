@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# this script assumes that your current working directory
+# is in the directory that contains storkslicemanager and storkcurlfuncs
+if ! ls | grep storkslicemanager.py >/dev/null
+then
+   echo "ERROR: must run this script from the directory that contains storkslicemanager.py"
+   exit 1
+fi
+
+# get the version string for storkslicemanager
+GUIVERSION=`egrep "guiversion = " storkslicemanager.py | sed s/guiversion\ =\ // | awk '{gsub("\"","",$0);print $0}'`
+SCVERSION=`egrep "scversion = " storkcurlfuncs.py | sed s/scversion\ =\ // | awk '{gsub("\"","",$0);print $0}'`
+
+#echo "found gui version"
+#echo $GUIVERSION
+#echo "found sc version"
+#echo $SCVERSION
+
+
+echo $GUIVERSION > gui-version 
+echo $SCVERSION >> gui-version
+
+# update it to the website
+scp gui-version lectura.cs.arizona.edu:/cs/www/stork/
+scp storkslicemanager.py lectura.cs.arizona.edu:/cs/www/stork/gui
+scp storkcurlfuncs.py lectura.cs.arizona.edu:/cs/www/stork/gui
+
+#if [ `hostname` != "lectura.cs.arizona.edu" ]
+#then
+#   ssh lectura.cs.arizona.edu chmod g+w /cs/www/stork/gui/\*.py
+#else
+#   chmod g+w /cs/www/stork/gui/*.py
+#fi
+

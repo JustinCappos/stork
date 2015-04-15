@@ -1,0 +1,25 @@
+
+    <!ELEMENT TRUSTEDPACKAGES ((USER | FILE)+)>
+
+    <!ATTLIST TRUSTEDPACKAGES USERNAME (#PCDATA) #REQUIRED
+                              PUBLICKEY (#PCDATA) #REQUIRED
+    >
+
+    <!ELEMENT USER EMPTY >
+    <!ATTLIST USER PATTERN CDATA #REQUIRED
+                   USERNAME CDATA #REQUIRED
+                   PUBLICKEY CDATA #REQUIRED
+                   ORDER-BY #DEFAULT "DEFAULT"
+                   REQUIRETAGS #DEFAULT ""
+                   PROVIDES #DEFAULT "" 
+    >
+    <!ATTLIST USER ACTION CDATA #REQUIRED>
+
+    <!ELEMENT FILE EMPTY>
+    <!ATTLIST FILE PATTERN CDATA #REQUIRED
+                   HASH CDATA #REQUIRED
+                   TIMESTAMP CDATA #DEFAULT "0"
+                   TAGS CDATA #DEFAULT ""
+                   PROVIDES #DEFAULT ""
+    >
+    <!ATTLIST FILE ACTION CDATA #REQUIRED >

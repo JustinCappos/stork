@@ -1,0 +1,94 @@
+April 9th, 2007
+	NR05's data diskspace ( 8gb used, 20 available)
+	Added cronjob to check diskspace
+
+April 24th, 2007
+	Tar'd and Bzipped initial syslog/strace folders (6 hours)
+	Receiving approximately 3GB per day
+	Strace files are cumulative (redundant), taking up lots of space
+		This was done to prevent the possibility of losing log data
+
+April 25th, 2007
+	Added a script that sort/uniq the strace files 
+		(data preserved through timestamps)
+
+April 5th, 2007
+	NR05's logging diskspace expanded to 250GB
+
+
+May 10th, 2007
+	Duy noticed NR05 was overflowing with scp calls.  
+		System prevents ssh into the system with a 
+		"too many files are open in system" error
+		Problems occur for very long SCPs as well as
+		nodes that were unstable and slow.
+	Note: Although Strace data is now uniq so that redundant data doesn't 
+		appear on the system, the entire cumulative file is still 
+		being sent
+
+May 11th, 2007
+	NR05 rebooted
+
+May 13th, 2007
+	Logs are now sent at a random minute mark per node each hour instead of 
+		being sent at xx:00, causing NR05 to thrash because of all the SCP calls 
+		coming in at once
+
+May 14th, 2007
+	NR05 is still thrashing because of large number of SCP calls 
+		(400 scps running, most older than an hour)
+
+May 17th, 2007
+	NR05 completely locks out ssh with 
+		"ssh_exchange_identification: Connection closed by remote host"
+
+May 22nd, 2007
+	Changed strace collection method to the same method we do the tcpdump 
+		(rotate logs, then send them in.  New data becomes unique)
+	Split Strace and Strac2 folders 
+		(Strac2 folder hold the new data that is uniq, while the 
+		strace folder collects any leftover data before the change)
+
+
+
+June 13th, 2007
+	NR05 rebooted, locked up in a bit over an hour
+	Issued killall on scp processes
+
+	
+June 28th, 2007
+	NR05 rebooted, added 256MB of Ram, and turned off X11
+
+July 2nd, 2007
+	Log files are now placed into subdirectories based on timestamp.  This 
+		was done because it became incredibly inconvenient to work with 
+		several hundred thousand files in a single directory, so they 
+		are now divided in such a way that roughly 1000 log files are 
+		stored in a single subdirectory.
+
+
+July 12th
+	Noticed that NR05's disk space hit 100% capacity.  The old strace 
+		function appears to still be active, and we are now receiving 
+		redundant syslog files due to the new directory structure 
+		alongside scp failures.
+	When an scp fails, all files in the scp stick around to be send the 
+		next time storklog is activated.  Since there are more files, 
+		there is a higher chance this scp will fail.  At the same time, 
+		when an scp fails, the file is renamed back to its original file 
+		name.  When the file is sent the next time, it receives a new 
+		timestamp and is sent in.  This means two files with the same 
+		data are stored under two different filenames.
+	
+July 14th
+	Space is relieved by bzipping the strace files.
+
+July 19th
+	Syslog files are now sent one at a time, and are removed from the 
+		nest if the file succeeds in transfering.
+
+July 26th 2007
+	Script is run to place all the syslog files into single files 
+		based on nodename.  This allows us to have a directory with 
+		a few hundred large files that are all sortted/uniqued, so 
+		all the redundant data is eliminated

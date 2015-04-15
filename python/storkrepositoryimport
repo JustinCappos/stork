@@ -1,0 +1,38 @@
+#!/bin/bash
+
+# read configuration variables
+source /usr/local/stork/bin/storkrepositoryconfig
+
+# I don't need the headers, repodata, signed-stamps, yumgroups.xml stuff
+
+echo "##### BEGINNING PACKAGE ADDITIONS"
+# prepare the package files, add the metadata
+/usr/local/stork/bin/storkrepbuild.py add $1 /repository/packages /repository/metadata
+
+
+echo "##### BEGINNING TPFILES / PACMAN UPDATE"
+# This command needs the full dir as --tmpuploaddir and only the file after...
+# How lame!
+# tpfiles
+/usr/local/stork/bin/storkverifysignedfile.py --endfiledir /repository/user-upload/tpfiles --tmpuploaddir $1/tpfiles/ `basename $1/tpfiles/*`
+
+# groups
+/usr/local/stork/bin/storkverifysignedfile.py --endfiledir /repository/user-upload/pacman --tmpuploaddir $1/pacman/ `basename $1/pacman/*.groups.pacman`
+
+# packages
+/usr/local/stork/bin/storkverifysignedfile.py --endfiledir /repository/user-upload/pacman --tmpuploaddir $1/pacman/ `basename $1/pacman/*.packages.pacman`
+
+
+echo "##### ADDING FILES FOR BITTORRENT USE"
+# Linking (copying due to a bug in BT) the files in for BitTorrent use...
+
+/usr/local/stork/bin/storklinkrepository.py copyfiles /repository/packageinfo /repository/packages/ /repository/symdir
+
+
+# build the tarballs
+/usr/local/stork/bin/storkrepositorybuildtar
+
+# make sure everything in /repository is owned by apache
+# this should always be the last line of this script
+
+chown -R apache /repository

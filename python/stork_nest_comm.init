@@ -1,0 +1,79 @@
+#!/bin/sh
+#
+# stork_nest_comm.init      Starts stork_nest_comm.py
+#
+# chkconfig: 2345 91 35
+# description: Starts and stops the stork nest
+#
+### BEGIN INIT INFO
+# Provides: $stork
+
+# Source function library.
+. /etc/init.d/functions
+
+[ -f /usr/local/stork/bin/stork_nest_comm.py ] || exit 0
+
+
+start() {
+	echo -n $"Starting stork_nest services: "
+        LD_PRELOAD=/usr/lib/libstorkwrap.so
+        export LD_PRELOAD
+
+#	(strace -f -ttt -e trace=network /usr/local/stork/bin/stork_nest_comm.py 2>&1 1>/dev/null) | (egrep "AF_INET" >> /tmp/strace-raw) &
+        daemon /usr/local/stork/bin/stork_nest_comm.py
+	RETVAL=$?
+	echo
+
+        # restart straced because the pid for stork_nest_comm will have changed
+        if [ -f /etc/init.d/straced ]
+        then
+            /etc/init.d/straced restart
+        fi
+
+	return $RETVAL
+}
+
+stop() {
+	echo -n $"Shutting down stork_nest services: "
+	killproc stork_nest_comm.py
+	RETVAL2=$?
+	echo ""
+
+        # make sure we got them all
+        for foo in `ps wuax | grep stork_nest_comm.py | grep -v grep | awk '{print $2}'`
+        do
+           kill -9 $foo &>/dev/null
+        done
+	return $RETVAL
+}
+
+restart() {
+	stop
+	start
+}
+
+rhstatus() {
+        status stork_nest_comm.py
+	exit $?
+}	
+
+
+case "$1" in
+  start)
+  	start
+	;;
+  stop)
+  	stop
+	;;
+  restart|reload|condrestart)
+  	restart
+	;;
+  status)
+  	rhstatus
+	;;
+  *)
+	echo $"Usage: $0 {start|stop|restart|reload|status|condrestart}"
+	exit 1
+esac
+
+exit $?

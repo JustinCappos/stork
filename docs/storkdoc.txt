@@ -1,0 +1,132 @@
+****Stork****
+**Installing Stork**
+- Prerequisites (root access, only works on Planetlab nodes)
+- Obtain InitScript
+- Run InitScript
+
+***Using Stork***
+*Installing a Package using stork
+Command: stork PACKAGENAME
+Example: stork gnuchess
+
+*Uninstalling package
+Command: stork --remove PACKAGENAME
+Example: stork --remove gnuchess
+
+
+*** Creating a Tarball Package ***
+	Creating a tarball package can be a great way to distribute your own applications.  With Stork, you can easily distribute your software to every node that needs it.  Stork also allows you to execute scripts before and after you install or uninstall, making tarballs even more powerful.
+
+	Including scripts in your tarball is very simple.  Just package '.preinstall', '.postinstall', '.preremove', and/or '.postremove' scripts along with your own files.  Stork will automatically execute the script when the user decides to install or uninstall your package.  The scripts will run from the same directory the tarball is unpacked (typically '/root/' or what ever is defined to be the home directory).
+
+	(Include example, tar and gzip a simple application with a simple script?)
+
+
+****Storkutil****
+	Stork's Enduser Utilities will help you manage your nodes more easily and efficiently.  It can help you organize your nodes, as well as perform installations and upgrades across all your nodes in a few simple steps.
+
+	To start using Stork's Enduser Utilities, so first need to create an identity for yourself.  You can do this using the 'genpair' function.  This will create a private key and a public key, which will identify you and the software you wish to distribute.  The privatekey is used to sign the files that stork uses to install your software, so be sure to keep it in safe.  The public key is distributed to all your nodes (and all others that wish to use your software).  To create your keys, just run 'storkutil.py genpair USERNAME', using any username you desire.  If this is your first time using stork, it is best to set this key as your default.  If you've already created keys and would like to use those, you can use the 'storkutil.py setdefault USERNAME' command.
+
+	storkutil.py genpair foo
+	y
+
+Be sure that the privatekey and publickey are in your current directory while using storkutil.  The publickey can be distributed to all your nodes through the upload website. (Link to upload instructions)
+
+
+***Configuration File***
+	You will need to change the stork configuration file to match the identity you created in storkutil.  Simple open up the file '/usr/local/stork/etc/stork.conf' and simple change the 'username = ' line to match the username you chose for your keys
+
+	username = foo
+
+	You can distribute this configuration file to all your nodes through the upload website. (Link to upload instructions)
+
+
+***Trusted Packages File***
+	The Trusted Packages File (TPFILE) defines which files you will allow your nodes to download and install.  This helps your nodes stay safe and secure, as files will be verified through a set of hash codes.  Even if two files share the same name, your nodes will only recieve the one that matches the hash obtained when the Trusted Packages File was created (preventing your nodes from downloading maliciously modified packages in the repository).  You are also allowed to trust other users, allowing your nodes to accept packages from those users exclusively.  This will let your nodes download and install applications created by other users.
+
+	To add a package to your TPFile, use the command 'storkutil.py addfile FILE [FILE]...', where FILE is the location of the package you would like to trust. If the TPFILE does not exist, storkutil will create one for you.
+
+	example (one package)
+	example (multiple packages)
+
+Storkutil will look at the file, create a hash, and write it to your TPFile.  If you upload the package to the repository and run stork to install the package, your node will select your specific file and install it. 	If you want to view the contents of your TPFILE, just use the view command in storkutil.
+
+	storkutil.py view tpfile
+	
+You can remove a file from your TPFile, just use the 'removefile' command.
+	
+	removefile example
+	view
+
+
+To trust users, you can use the adduser command:  
+
+	storkutil adduser USER USER.pubkey (allow|deny|any) AFFECTEDPACKAGES
+
+	USER is the name of the user you want to trust, followed by the public key that user has made available.  AFFECTEDPACKAGES can be a pattern that defines the packages you want to accept.  If the TPFILE does not exist, storkutil will create one for you.
+
+	example: storkutil.py adduser USER1 USER1.publickey allow user-4-2.tar.gz
+	example: storkutil.py adduser USER2 USER2.publickey deny java\*
+	example: storkutil.py adduser PlanetLab PlanetLab.publickey allow \*
+
+	The first example shows how to accept a single package from the user USER1.  The second example will deny all files from USER2 that have the pattern java*.  The third example shows how to accept all packages from the user PlanetLab (be sure to shell escape your use of *).  You can use the view to see the contents of your TPFILE.
+
+	view
+
+	You can remove users using the remove user command.
+
+When you are done, you can upload the file to your nodes through the upload website (link to upload instructions)
+
+
+
+****Pacman****
+	Stork's package Manager (pacman) can help you manage your packages across all your nodes.  Rather than installing or uninstalling packages on each of your nodes individually, you can assign your nodes to groups and instruct stork to install or remove packages on those groups.  Pacman uses two files; groups and packages.  Using StorkUtil, you can create these two files and upload them.  Stork will then distribute these files to your nodes and perform the tasks you assigned.
+
+***Pacman Groups***
+	Your pacman groups file allows you organize your nodes into separate groups.  You are allowed to include a node into a group or exclude a node from a group.  You can also include, exclude, or intersect groups with each other.  To define our groups, we can use:
+
+	storkutil pacgroups (include|exclude|intersect|remove) GROUP NAME [NAME...]
+
+Let's start by adding a node to a group. If a pacman group file for your username does not exist, then storkutil will create a new one.
+
+	storkutil pacgroups include myGroup planetlab.foo.edu
+
+Storkutil will automatically sign the file using your default private key
+file, which you created when you generated your first key pairs (link).  If you want to use a username that is not your default, you can use the --username option to work on a different file.
+
+We can continue adding more data into our group definitions.  If you want to view the contents of the group file, you can use the “view” command in StorkUtil.
+
+	storkutil pacgroups include __  (multiple nodes)
+        storkutil pacgroups exclude __
+	storkutil view groups
+
+As well as remove entries
+
+	storkutil pacgroups remove __
+	storkutil view groups
+
+When you are done, you can upload your file to the Stork repository.  (LINK to upload instructions).
+
+
+
+***Pacman Packages***
+	The pacman packages file allows you to manage which packages to install on which nodes.  With the pacman packages file, you can tell a node or group (as defined by your pacman groups file (LINK)) to install or uninstall a package.  To create and modify our packages file, we will use:
+
+	storkutil pacpackages (node|group) NAME (install|remove|upgrade) PACKAGE [PACKAGE]
+
+We can start by assigning a node to install a package.  Be sure your filename follows the pattern <name>.packages.pacman, where the name is the one your configured in your stork.conf file (possible link?).  This will aid your nodes in finding the correct group file to use.  If the file you specified does not exist, then storkutil will create a new one.
+
+	storkutil pacpackages node planetlab.foo.edu install gnuchess
+
+We can also assign groups to install or remove packages.  You can also list a
+
+	storkutil pacpackages group MyGroup install lynx man gnuchess
+
+Storkutil will automatically sign the file using your default private key file, which you created when you generated your first key pairs (link).  If you want to work using a different set of keys and files, you can use the --username option.
+
+You can view the contents of your package file using the view command in Storkutil. (view to be coded)
+
+	storkutil view packages
+
+When you are done, you can upload your file to the Stork repository.  (LINK).
+

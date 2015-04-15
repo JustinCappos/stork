@@ -1,0 +1,62 @@
+#!/bin/sh
+#
+# tcpdumpd      Starts stracedaemon
+#
+# description: Starts the stracedaemon, which collects...
+#
+### BEGIN INIT INFO
+
+# Source function library.
+. /etc/init.d/functions
+
+[ -f /usr/local/stork/bin/stracedaemon.py ] || exit 0
+
+start() {
+        echo -n $"Starting strace service: "
+        daemon /usr/local/stork/bin/stracedaemon.py
+        RETVAL=$?
+        echo
+        return $RETVAL
+}
+
+stop() {
+        echo -n $"Shutting down strace service: "
+        killall -9 strace &> /dev/null
+        kill -HUP `cat /tmp/strace.pid 2> /dev/null` &> /dev/null
+        sleep 2
+        kill -9 `cat /tmp/strace.pid 2> /dev/null` &> /dev/null
+        rm -f /tmp/strace.pid &> /dev/null
+        RETVAL=0
+        RETVAL2=0
+        echo
+        return $RETVAL
+}
+
+restart() {
+        stop
+        start
+}
+
+rhstatus() {
+        echo "Sorry, not implemented..."
+}	
+
+case "$1" in
+  start)
+        start
+        ;;
+  stop)
+        stop
+        ;;
+  restart|reload|condrestart)
+        restart
+        ;;
+  status)
+  	rhstatus
+	;;
+  *)
+        echo $"Usage: $0 {start|stop|restart|reload|condrestart|status}"
+        exit 1
+esac
+
+exit $?

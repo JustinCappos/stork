@@ -1,0 +1,14 @@
+# TODO #
+# [] Retrieve slicename public key file
+# [] Retrieve config file
+# [] do bindscript
+
+-----BEGIN RSA PRIVATE KEY-----
+MIIBOgIBAAJBAKXvf4kuz6UM1eYdLdzxoGrOFVj5eH1sQnUCjNduQ/gW5EsfcWxg
+MRiZLT9e29KOOLjLlvO7tN/YvvgWlmexkscCAwEAAQJAREs/BVoD0h1nR69Iuf+k
+k3DALn92jMBq1be3+c6DIO65VEgZr9fenho3UiqlqRjLx1elZSLl/tneSb4Asklb
+OQIhANJNkB7JlIozrQwCP1tLP6gjCe8c9eDdCQGfXwyhZZyNAiEAyf3tCXYH4wKj
+49j3EnlBhBCpGHEhk35lDOAG6DKRuaMCIFBZ8kbRHj/vnp6H/U0UYy4KtTD3D7rq
+uRY1nktlHz3BAiBt8E0RdzJ3tjopiy9+2Ix2KvM+IGUb+BFb3psjylJSbQIhAINT
+OU5ue68O6o89zY6W+/CAa2j7yUbIJGPKAjhBNbFA
+-----END RSA PRIVATE KEY-----

@@ -1,0 +1,43 @@
+#!/bin/bash
+
+# this is a little script that will call storkpseprattempt
+# only if pseprattempt is not already running. This will
+# be based off of the presence of a .pid file in 
+# /repository/.pid
+
+# this script should only be called from the repository
+# php code after something is updated. And when it is
+# called it should be invoded with & to fork the script
+# so php does not hang waiting for this to finish, you 
+# also might need to redirect stderr and stdout to 
+# /dev/null to prevent php from hanging
+
+
+# SMB: renamed pid file to psepr.pid to disambiguate it from other pid files
+PID=/repository/psepr.pid
+
+COMMAND=/usr/local/stork/bin/storkpseprattempt.py
+
+if [ -f $PID ]
+then
+
+	if ps `cat $PID` | grep psepr > /dev/null
+	then
+		echo "psepr service running already!"
+		exit 1
+	else
+		echo "some other service with this .pid running"
+		rm -f $PID 2>/dev/null
+
+	fi
+
+
+else
+	# if we get here we can actually run the command
+
+	echo "run command ($command) $*"
+	$COMMAND $*
+
+fi
+
+

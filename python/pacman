@@ -1,0 +1,677 @@
+#!/usr/bin/env python
+
+# John H. Hartman
+# pacman -- package manager
+# Installs, updates, and removes packages based on command-line options and
+# the contents of the packages.xml and groups.xml files.
+
+#           [option, 	long option,     	variable,    		action,  	data,     	default,         			metavar, 	description]
+"""arizonaconfig
+    options=[["",       "--pacmangroupfile",    "pacmangroupFile",      "store",        "string",       None,"FILENAME",     "group file (DEPRECATED)"],
+             ["",       "--pacmanpackagefile",  "pacmanpackageFile",    "store",        "string",       None,"FILENAME",     "package file (DEPRECATED)"],
+             ["",       "--pacmansummaryfile",  "pacmansummaryFile",    "store",        "string",       "/usr/local/stork/var/pacman.summary",  None,       "pacman summary log file"],
+	     ["",	"--pacmandebug",	"pacmandebug",   	"store_true", 	None, 		False,					None,		"debug"],
+	     ["", 	"--pacmanverbose",      "pacmanverbose", 	"store_true", 	None, 		False,					None,		"verbose"],
+	     ["",	"--pacmanconfigfile",   "pacmanconfigFile", 	"store",  	"string", 	"/usr/local/stork/etc/stork.conf", 	"FILENAME",	"configuration file"],
+	     ["",	"--template-install",   "templateInstall", 	"store", 	"string",  	"stork ( %a) (%p)(=%v)", 	"TEMPLATE", 	"template for install"],
+	     ["",	"--template-remove",    "templateRemove", 	"store", 	"string",  	"stork --remove( %a) (%p)(=%v)", 		"TEMPLATE", 	"template for remove"],
+	     ["",	"--template-update",    "templateUpdate", 	"store", 	"string",  	"stork --upgrade( %a) (%p)(=%v)", 		"TEMPLATE", 	"template for update"],
+	     ["",	"--no-act",		"noAct",		"store_true",	None,		False,					None,		"Don't do anything"],
+             ["",       "--noupdateonstart",    "noupdateonstart",      "store_true", None, False,None, "do not try to download latest custom configuration files and keys from repository upon start of stork.py"],
+	     ["",	"--dtd-packages",	"dtdPackages",		"store",	"string",	"/usr/local/stork/bin/packages.dtd",	"FILENAME",	"packages DTD file"],
+	     ["",	"--dtd-groups",		"dtdGroups",		"store",	"string",	"/usr/local/stork/bin/groups.dtd",	"FILENAME",	"groups DTD file"],
+             ["",       "--lockdir",            "lockdir",              "store",       "string", "/var/lock",                        "dir",   "use the specified mutex lock directory (default /var/lock)"],
+             ["",       "--mergeactions",       "mergeactions",         "store_true",   None,   False,   None,   "Merge actions when calling stork"]]
+    includes=[]
+"""
+
+import sys, os, string, re, socket
+# The path addition should not be necessary.
+#sys.path +=["/home/jhh/research/stork/stork/python/refactor"]
+from xml.parsers.xmlproc import xmlproc,xmlapp,xmldtd,xmlval
+import arizonaconfig
+import arizonareport
+import arizonatransfer
+from arizonaxml import *
+import pdb
+import storkusername
+import arizonacrypt
+import arizonageneral
+import arizonacurl
+import time
+import storkpackagelist
+import storklog
+import storkstatuscodes
+#import storktrackusage
+import arizonagroup
+
+groupappend=".groups.pacman"
+packageappend=".packages.pacman"
+
+glo_node = None
+
+usagemsg="""
+pacman [OPTIONS]
+
+Options:
+--pacmandebug                       view debug information
+--pacmanverbose                     view verbose information
+--pacmanconfigfile CONFIGFILE       specify a configuration file
+                                    (default: stork.conf)
+--template-install  COMMAND         change the command for an "install" call
+--template-remove   COMMAND         change the command for a "remove" call
+--template-update   COMMAND         change the command for an "update" call
+--no-act                            pacman does nothing
+--dtd-packages                      specify a dtd file for the packages.pacman
+                                    parsing
+--dtd-groups                        specify a dtd file for the groups.pacman
+                                    parsing
+
+"""
+
+class Action(object):
+    def __init__(self, tag, args, package, version):
+	self.tag = tag
+	self.args = args
+        # smbaker: combined version and package name because it makes it
+        #    easier to merge related actions.
+        if version:
+   	    self.package = package + '=' + version
+        else:
+            self.package = package
+        self.version = None
+        #self.package = package
+	#self.version = version
+    def __cmp__(self, other):
+	#pdb.set_trace()
+	if (self.tag == other.tag) and (self.args == other.args) and \
+		(self.package == other.package) and (self.version == other.version):
+	    return 0
+	else:
+	    return 1
+    def canMerge(self, other):
+        if self.tag != other.tag:
+            return 0
+        if self.args != other.args:
+            return 0
+        # let's only try to merge installs and updates for now
+        if (self.tag != "INSTALL") and (self.tag != "UPDATE"):
+            return 0
+        return 1
+    def merge(self, other):
+        if not self.canMerge(other):
+            return 0
+        self.package = self.package + ' ' + other.package
+        return 1
+
+
+class PackageApp(xmlproc.Application):
+    """This class parses the packages.xml file."""
+    def __init__(self, slice, node, groups):
+	#
+	# Do this the old way (instead of using super) because xmlproc is written using
+	# old-style classes that don't work with super.
+	#
+	xmlproc.Application.__init__(self)
+	CreateAttr(self, 'action', None)		# Current action
+	CreateAttr(self, 'loc', None)			# Parser locator
+	CreateAttr(self, 'ignore', False)		# Ignore current CONFIG element?
+	CreateAttr(self, 'slice', slice)		# Slice name
+	CreateAttr(self, 'node', node)			# Node name
+	CreateAttr(self, 'groups', groups)		# List of node's groups
+	CreateAttr(self, 'actions', [])			# Actions to be performed
+
+    def set_locator(self, locator):
+	self.loc = locator
+    def doc_start(self):
+	self.ignore = False
+    def handle_start_tag(self, tag, attrs):
+	line = self.loc.get_line()
+	file = self.loc.get_current_sysid()
+	if self.ignore == True:
+	    return
+	if tag == "CONFIG":
+	    #
+	    # Slice, group, and node attributes have to match (if specified), 
+	    # otherwise we ignore this element
+	    #
+	    #pdb.set_trace()
+	    slice = attrs.get("SLICE")
+	    if (slice != None) and (slice != self.slice):
+		self.ignore = True
+		return
+	    group = attrs.get("GROUP")
+	    if (group != None):
+		self.ignore = True
+		if group in self.groups:
+		    self.ignore = False
+	    if self.ignore == True:
+		return
+	    node = attrs.get("NODE")
+	    if (node != None) and (node != self.node):
+		self.ignore = True
+		return
+
+	elif tag == "INSTALL" or tag == "REMOVE" or tag == "UPDATE":
+	    self.action = Action(tag, attrs.get("ARGS"), attrs.get("PACKAGE"), attrs.get("VERSION"))
+	elif tag == "PACKAGES":
+	    pass
+	else:
+	    # Shouldn't happen if DTD is correct
+	    raise XMLError , "invalid element: " + tag
+
+    def handle_end_tag(self,tag):
+	if tag == "CONFIG":
+	    if self.ignore:
+		self.ignore = False
+	    return
+	elif self.ignore == True:
+	    return
+	if tag == "INSTALL" or tag == "REMOVE" or tag == "UPDATE":
+	    self.actions.append(self.action)
+	    self.action = None
+	elif tag == "PACKAGES":
+	    pass
+	else:
+	    # Shouldn't happen if DTD is correct
+	    raise XMLError , "invalid element"
+
+def PackageFileParse(dtd, package_file_name, slice, node, groups):
+    """Creates the parser to parse packages.xml and parses it. 
+ Returns a list of actions to be performed."""
+    try:
+       # SMB - storkpackagelist.find_file() already checked the signature for
+       # us, so we can assume the file is valid and extract the contents
+       temp_contents = arizonacrypt.XML_retrieve_originalfile_from_signedfile(package_file_name)
+    except TypeError, e:
+       arizonareport.send_error(0, str(e))
+       sys.exit(1)
+
+    app = PackageApp(slice, node, groups)
+    parser = Validator(dtd, app)
+    try:
+	if file == sys.stdin:
+	    parser.read_from(sys.stdin, 16 * 1024)
+	    parser.close()
+	else:
+	    parser.parse_resource(temp_contents)
+    except XMLError, e:
+	print e
+	sys.exit(1)
+
+    # remove the temeporary file we created when we extracted the signed version
+    try:
+        os.remove(temp_contents)
+    except:
+        pass
+
+    return app.actions
+
+def NodeGroups(groups):
+    """ Creates a dictionary in which each entry is keyed by a node
+ name and contains a list of all groups of which the node is a
+ member."""
+    nodes = {}
+
+    for g in groups.keys():
+	for n in groups[g]:
+	    if nodes.has_key(n) == False:
+		nodes[n] = [g]
+	    elif g not in nodes[n]:
+		nodes[n].append(g)
+    return nodes
+
+def MyGroups(groups, node):
+    """Inverts the groups to create a dictionary of nodes and the groups they are in."""
+    global verbose
+    # 
+    # Invert the groups to create a dictionary of nodes and the groups they are in.
+    # This is overkill (we only care about our node) but perhaps it will be useful
+    # someday to have the complete mapping. It's also useful for debugging.
+
+    nodes = NodeGroups(groups)
+
+    if verbose:
+	print "\nNodes:"
+	for n in nodes.keys():
+	    print "%s: %s" % (n,','.join(nodes[n]))
+
+    #
+    # Make a list of groups this node is in (if a node name has been specified).
+    #
+    myGroups = []
+    if node != None and nodes.has_key(node) != False:
+	myGroups = nodes[node]
+    return myGroups
+
+
+def pacmansummary_create():
+    """
+    <Purpose>
+       Creates a pacman summary log file. 
+
+    <Arguments>
+       None
+
+    <Returns>
+       None
+    """
+    fn = arizonaconfig.get_option("pacmansummaryFile")
+    if fn:
+        current_fn = fn+"_current"
+
+        # if there is a pacman.summary_current leftover from a previous
+        # session, then maybe pacman failed during that previous run. If so,
+        # then make sure we copy that file over to the history before we
+        # overwrite it.
+        try:
+            if os.path.exists(current_fn):
+                os.system("cat " + current_fn + " >> " + fn + "_history")
+                os.system("rm " + current_fn)
+        except OSError:
+            arizonareport.send_error(0, "failed to terminate old pacman.summary_current")
+
+        try:
+            # append _current to the filename. This will prevent us from
+            # overwriting the existing pacman summary file. We will rename it
+            # in pacmansummary_complete
+            file = open(current_fn, "w")
+            if file:
+                file.write("***pacman session started " + time.ctime() + "\n")
+                file.close()
+        except IOError: 	#changed from general exception
+            arizonareport.send_error(0, "failed to create pacman.summary")
+
+
+def pacmansummary_complete():
+    """
+    <Purpose>
+       Finalize the pacman summary file by writing the current date and time.
+
+    <Arguments>
+       None
+
+    <Returns>                       
+       None
+    """
+    fn = arizonaconfig.get_option("pacmansummaryFile")
+    if fn:
+        try:
+            file = open(fn+"_current", "a")
+            if file:
+                file.write("***pacman session completed " + time.ctime() + "\n")
+                file.close()
+
+                # remove the existing pacman.summary and replace it with
+                # pacman.summary_complete.
+
+                if os.path.exists(fn):
+                    os.remove(fn)
+                os.rename(fn+"_current", fn)
+        except (IOError, OSError):   #changed from general exception
+            arizonareport.send_error(0, "failed to complete pacman.summary")
+
+        # append the current file to
+        try:
+            os.system("cat " + fn + " >> " + fn + "_history")
+        except OSError:
+            arizonareport.send_error(0, "failed to concat pacman.summary_history")
+
+
+
+def pacmansummary_append(s):
+    """
+    <Purpose>
+       Append a line to the pacman summary file.
+
+    <Arguments>
+       None
+
+    <Returns>
+       None
+    """
+    fn = arizonaconfig.get_option("pacmansummaryFile")
+    if fn:
+        try:
+            file = open(fn+"_current", "a")
+            if file:
+                file.write(s + "\n")
+                file.close()
+        except IOError:   #changed from general exception
+            arizonareport.send_error(0, "failed to append pacman.summary");
+
+def pacmansummary_append_msg(s):
+    pacmansummary_append("   " + s)
+
+def pacmansummary_append_status(rc):
+    """
+    <Purpose>
+       Append status info to a pacman summary file.
+
+    <Arguments>
+       rc
+           The exit status of the stork.py program. It is a bitmask of possible
+           error codes.
+
+    <Returns>
+       None
+    """
+    rc = rc >> 8
+    msg = "   status: "+str(rc)
+    if rc & storkstatuscodes.STATUS_ERROR != 0:
+        msg = msg + " ERROR"
+    if rc & storkstatuscodes.STATUS_ALREADY_RUNNING != 0:
+        msg = msg + " ALREADY-RUNNING"
+    if rc & storkstatuscodes.STATUS_BAD_OPTION != 0:
+        msg = msg + " BAD-OPTION"
+    if rc & storkstatuscodes.STATUS_ALREADY_DONE != 0:
+        msg = msg + " ALREADY-DONE"
+    if rc & storkstatuscodes.STATUS_PACKAGES_INSTALLED != 0:
+        msg = msg + " SOME-PACKAGES-INSTALLED"
+    if rc & storkstatuscodes.STATUS_PACKAGES_REMOVED != 0:
+        msg = msg + " SOME-PACKAGES-REMOVED"
+    if rc & storkstatuscodes.STATUS_NOT_FOUND != 0:
+        msg = msg + " PACKAGES-NOT-FOUND"
+
+    pacmansummary_append(msg)
+
+
+
+
+
+def MergeActions(actions):
+    """
+    <Purpose>
+       Merge similar actions
+
+    <Arguments>
+       actions
+           list of actions to merge
+
+    <Side Effects>
+       Elements of 'actions' may be modified
+    """
+    newActions = []
+    lastAction = None
+
+    for action in actions:
+        if lastAction and lastAction.canMerge(action):
+            lastAction.merge(action)
+        else:
+            if lastAction:
+                newActions.append(lastAction)
+            lastAction = action
+
+    if lastAction:
+        newActions.append(lastAction)
+
+    return newActions
+
+
+
+
+
+def FindLegacyGroupFile():
+    # this function will be going away eventually
+
+    arizonareport.send_error(0, "WARNING: The option --pacmangroupfile is deprecated")
+    arizonareport.send_error(0, "Future versions will use your stork username (--username) to name your pacman files")
+
+    pkey = storkusername.publickey_string()
+    if not pkey:
+        arizonareport.send_error(0, "I don't know your public key, so I cannot continue")
+        exit(1)
+
+    groupFile = arizonaconfig.get_option("pacmangroupFile")
+
+    # strip the path from the group file name because older config files
+    # contained the absolute path name.
+    (path, groupFile) = os.path.split(groupFile)
+    if path:
+       arizonareport.send_out(0, "WARNING: I stripped the path '" + path +
+                                    "' from your groups.pacman filename")
+
+    (groupFile, groupFileRepo) = storkpackagelist.find_file("pacman", groupFile, None, pkey)
+
+    if (not groupFile):
+       arizonareport.send_error(0, "unable to find group file: " + str(groupFileOrig))
+       sys.exit(1)
+
+    return (groupFile, groupFileRepo)
+
+
+
+
+def FindLegacyPackageFile():
+    # this function will be going away eventually
+
+    arizonareport.send_error(0, "WARNING: The option --pacmanpackagefile is deprecated")
+    arizonareport.send_error(0, "Future versions will use your stork username (--username) to name your pacman files")
+
+    pkey = storkusername.publickey_string()
+    if not pkey:
+        arizonareport.send_error(0, "I don't know your public key, so I cannot continue")
+        exit(1)
+
+    packageFile = arizonaconfig.get_option("pacmanpackageFile")
+
+    (path, packageFile) = os.path.split(packageFile)
+    if path:
+       arizonareport.send_out(0, "WARNING: I stripped the path '" + path +
+                                    "' from your packages.pacman filename")
+
+    (packageFile, packageFileRepo) = storkpackagelist.find_file("pacman", packageFile, None, pkey)
+
+    return (packageFile, packageFileRepo)
+
+
+
+
+
+def Main(path):
+    global verbose,groupappend,packageappend,glo_node
+
+    args = arizonaconfig.init_options('pacman', usage=usagemsg, configfile_optvar='pacmanconfigFile', version='2.0')
+
+    if os.geteuid() > 0:
+        arizonareport.send_error(0, "You must be root to run this program...")
+        sys.exit(1)
+
+    # XXX quick and dirty way to prevent pacman from running on a node.
+    # XXX remember to disable when I'm done with this
+    if os.path.exists("/usr/local/stork/disable_pacman"):
+        arizonareport.send_out(0, "pacman disabled by /usr/local/stork/disable_pacman")
+        sys.exit(0)
+
+    # grab the pacman mutex. This prevents multiple copies of pacman from
+    # running at the same time. It is held for the duration that pacman is
+    # active.
+    pacmanLock = arizonageneral.mutex_lock("pacman", arizonaconfig.get_option("lockdir"))
+    if not pacmanLock:
+        arizonareport.send_error(0, "Another copy of pacman is already running...")
+        sys.exit(0)
+
+    pacmansummary_create()
+
+    # reset the usage tracking file and add the config file to the list
+    # of important files
+#    storktrackusage.reset()
+#    if arizonaconfig.glo_config_filename:
+#       storktrackusage.add(arizonaconfig.glo_config_filename)
+
+    # TODO: do we need to wait for the 'stork' mutex like we do in stork.py?
+
+    # grab the stork mutex. This ensure that another copy of stork is not
+    # downloading config files or repository. This mutex is released before
+    # pacman calls stork to execute actions (or else deadlock would result)
+    storkLock = arizonageneral.mutex_lock("stork", arizonaconfig.get_option("lockdir"))
+    if not storkLock:
+        arizonareport.send_error(0, "Another copy of stork is already running...")
+        pacmansummary_append_msg("exited due to stork already running")
+        pacmansummary_complete()
+        sys.exit(0)
+
+    # attempt to fetch the users pub key and configuration
+    # files
+    if not arizonaconfig.get_option("noupdateonstart"):
+      restart = arizonacurl.fetch_conf()
+      if restart:
+         pacmansummary_append_msg("found new config file")
+         args = arizonaconfig.init_options('pacman', usage=usagemsg, configfile_optvar='pacmanconfigFile', version='2.0')
+         # tell storkusername to reload its key database (necessary?)
+         storkusername.reset_key_database()
+         #username = arizonaconfig.get_option("username")
+         #arizonareport.send_out(0,"just updated configuration file. username="+username)
+      restart = arizonacurl.fetch_pubkey()
+      if restart:
+         pacmansummary_append_msg("found new publickey")
+         # tell storkusername it needs to reload its key database
+         storkusername.reset_key_database()
+         # TODO: public keys have changed, so we need to need to go back and
+         # try arizonacurl.fetch_conf() using the new public key. Note:
+         # watch out for endless loop / cycle.
+
+    packageFile = arizonaconfig.get_option("pacmanpackageFile")
+    groupFile = arizonaconfig.get_option("pacmangroupFile")
+    #slice = arizonaconfig.get_option("pacmanslice")
+    #node = arizonaconfig.get_option("pacmannode")
+    verbose = arizonaconfig.get_option("pacmanverbose")
+    debug = arizonaconfig.get_option("pacmandebug")
+    act = (arizonaconfig.get_option("noAct") == False)
+    username = arizonaconfig.get_option("username")
+
+    templates = {}
+    for key,var in (("INSTALL","templateInstall"),("REMOVE","templateRemove"), ("UPDATE","templateUpdate")):
+	templates[key] = arizonaconfig.get_option(var)
+
+    dtdPackages = arizonaconfig.get_option("dtdPackages")
+    dtdGroups = arizonaconfig.get_option("dtdGroups")
+
+    # download stuff from the repository
+    storkpackagelist.init()
+
+    #find the slice value:
+    slice = arizonageneral.getslicename()
+    if not slice:
+        for i in os.environ.keys():
+            if i[:4]=='USER':
+                slice=os.environ[i]
+                break
+
+    pacmansummary_append_msg("slice = " + str(slice))
+
+    if arizonaconfig.get_option("pacmangroupFile"):
+        (groupFile, groupFileRepo) = FindLegacyGroupFile()
+    else:
+        # find the groupFile in the repositories
+        (groupFile, groupFileRepo, groupFileKeyTuple) = \
+            storkpackagelist.find_file_kind("pacman", "groups.pacman")
+
+    pacmansummary_append_msg("groups file = " + str(groupFile))
+
+    if not groupFile:
+        arizonareport.send_error(0, "WARNING: Cannot find groups.pacman file. No groups will be used.")
+
+    if arizonaconfig.get_option("pacmanpackageFile"):
+        (packageFile, packageFileRepo) = FindLegacyPackageFile()
+    else:
+        # find the packageFile in the repositories
+        (packageFile, packageFileRepo, packageFileKeyTuple) = \
+            storkpackagelist.find_file_kind("pacman", "packages.pacman")
+
+    pacmansummary_append_msg("packageFile = " + str(packageFile))
+
+    if not packageFile:
+       arizonareport.send_error(0, "ERROR: unable to find packages.pacman file.")
+       pacmansummary_append_msg("exiting due to failure to find packages.pacman file")
+       pacmansummary_complete();
+       sys.exit(1)
+
+    USERNAME = username
+
+    #slice=username
+    node=socket.gethostname()#must be able to auto-detect the node name.
+    glo_node = node
+    if verbose:
+	print "Slice:",slice
+	print "Node:",node
+
+        if groupFileRepo and groupFile:
+            print "Group file: [" + groupFileRepo['name'] + "] " + os.path.split(groupFile)[1]
+        else:
+   	    print "Group file:",groupFile
+
+        if packageFileRepo and packageFile:
+            print "Package file: [" + packageFileRepo['name'] + "] " + os.path.split(packageFile)[1]
+        else:
+            print "Package file:",packageFile
+
+    groups = {}
+    #
+    # Parse the groups file and get the groups dictionary.
+    #
+    if groupFile != None:
+	groups = arizonagroup.GroupFileParse(dtdGroups, groupFile)
+
+    if verbose:
+	print "\nGroups:"
+	for g in groups.keys():
+	    print "%s: %s" % (g,','.join(groups[g]))
+
+    myGroups = MyGroups(groups, node)
+    #
+    # Parse the packages file and figure out what actions should be taken.
+    #
+
+    if packageFile == None:
+        print "Warning: Exiting: no package file specified (and implied package file does not exist)."
+        sys.exit()
+	#packageFile = sys.stdin
+
+    #print dtdPackages,":", packageFile,":", slice,":", node,":", myGroups
+    actions = PackageFileParse(dtdPackages, packageFile, slice, node, myGroups)
+
+    if arizonaconfig.get_option("mergeactions"):
+        actions = MergeActions(actions)
+
+    #
+    # Create the commands to run based on the command templates.
+    #
+    commands = []
+    for action in actions:
+	cmd = templates[action.tag]
+	fmt = r'\((?P<foo>[^\(]*)\%%%s(?P<bar>[^\)]*)\)'
+	for k,value in (("p",action.package),("v",action.version),
+		("a",action.args)):
+	    r = re.compile(fmt % k)
+	    if value:
+		s = r'\g<foo>' + value + r'\g<bar>'
+		cmd = r.sub(s, cmd)
+	    else:
+		cmd = r.sub("", cmd)
+	commands.append(cmd)
+    if act == False or verbose == True:
+        if (act == False):
+            print "would execute:"
+	for c in commands:
+	    print "  " + c
+    if act:
+        # release the stork lock, so stork can run
+        arizonageneral.mutex_unlock(storkLock)
+
+	for c in commands:
+            pacmansummary_append("executing: " + c)
+            storklog.log_nest("pacman", "Main", "stork_call", "command", str(c))
+	    rc = os.system(c)
+            pacmansummary_append_status(rc)
+            storklog.log_nest("pacman", "Main", "stork_call", "status", str(rc))
+	    if rc != 0:
+		print "Command '" + c + "' failed"
+		#Duy Nguyen - Removed exit.  Run the other commands if one fails
+		#sys.exit(1)
+#    storktrackusage.commit()
+    pacmansummary_complete()
+    #sys.exit(0)
+
+if __name__ == "__main__":
+    Main(None)

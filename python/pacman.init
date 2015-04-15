@@ -1,0 +1,84 @@
+#!/bin/sh
+#
+# pacman.init      Starts pacmand
+#
+# chkconfig: 2345 95 35
+# description: Starts and stops pacmand
+#
+### BEGIN INIT INFO
+# Provides: $stork
+
+# Source function library.
+. /etc/init.d/functions
+
+[ -f /usr/local/stork/bin/pacmand ] || exit 0
+
+
+start() {
+	echo -n $"Starting pacmand: "
+        daemon /usr/local/stork/bin/pacmand
+        #/usr/local/stork/bin/pacmand
+	RETVAL=$?
+	echo
+	return $RETVAL
+}	
+
+stop() {
+	echo -n $"Shutting down pacmand (fail ok): "
+	killproc pacmand
+	RETVAL=$?
+	echo ""
+	#return $RETVAL
+        return 0
+}	
+
+restart() {
+	stop
+	start
+}	
+
+hup() {
+        pgrep -f "python.*pacmand" > /dev/null
+        if [ "$?" -eq 0 ]; then
+		echo -n $"Restarting pacmand: "
+		pkill -HUP -f "python.*pacmand" > /dev/null
+		RETVAL=$?
+		if [ "$RETVAL" -eq 0 ]; then
+			success
+		else
+			failure
+		fi
+		echo ""
+		return 1
+	else
+		start		
+	fi
+}
+
+rhstatus() {
+        echo "Sorry, not implemented..."
+}	
+
+
+case "$1" in
+  start)
+  	start
+	;;
+  stop)
+  	stop
+	;;
+  restart|reload|condrestart)
+  	restart
+	;;
+  hup)
+	hup
+	;;	
+  status)
+  	rhstatus
+	;;
+  *)
+	echo $"Usage: $0 {start|stop|restart|reload|condrestart|hup|status}"
+	exit 1
+esac
+
+exit $?

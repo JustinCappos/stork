@@ -1,0 +1,64 @@
+#!/bin/sh
+#
+# storkbtsharedaemon      Starts storkbtsharedaemon
+#
+# chkconfig: 2345 92 33
+# description: Starts the storkbtshare program, which shares torrent files
+#              downloaded by storktorrent
+#
+### BEGIN INIT INFO
+
+# Source function library.
+. /etc/init.d/functions
+
+[ -f /usr/local/stork/bin/stork_nest_update.py ] || exit 0
+
+
+start() {
+        echo -n $"Starting storkupdate service: "
+        LD_PRELOAD=/usr/lib/libstorkwrap.so
+        export LD_PRELOAD
+        daemon /usr/local/stork/bin/stork_nest_update.py
+        RETVAL=$?
+        echo
+        return $RETVAL
+}
+
+stop() {
+        echo -n $"Shutting down storkupdate service: "
+        killproc stork_nest_update.py
+        RETVAL2=$?
+        echo ""
+        return $RETVAL
+}
+
+restart() {
+        stop
+        start
+}
+
+rhstatus() {
+        status stork_nest_update.py
+	exit $?
+}
+
+
+case "$1" in
+  start)
+        start
+        ;;
+  stop)
+        stop
+        ;;
+  restart|reload|condrestart)
+        restart
+        ;;
+  status)
+        rhstatus
+        ;;
+  *)
+        echo $"Usage: $0 {start|stop|restart|reload|status|condrestart}"
+        exit 1
+esac
+
+exit $?

@@ -1,0 +1,14 @@
+#!/bin/sh
+
+# <Program Name>
+#    .preinstall
+#
+# <Author>
+#    Programmed by Jeffry Johnston
+#
+# <Purpose>
+#    Commands to run before stork logging tarball is extracted
+
+# back up /etc/logrotate.d/syslog
+/bin/cp /etc/logrotate.d/syslog /etc/logrotate.d/syslog.orig
+
